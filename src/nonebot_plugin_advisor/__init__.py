@@ -42,7 +42,7 @@ from .docs_store import KnowledgeBase
 from .session_store import SessionMemory
 
 __plugin_meta__ = PluginMetadata(
-    name='LLM 客服 Advisor',
+    name='LLM 客服',
     description=(
         'OpenAI 兼容格式的跨平台 LLM 客服：读文档、查日志、看图、标注回发、联网搜索'
     ),
@@ -51,12 +51,11 @@ __plugin_meta__ = PluginMetadata(
         '发送「客服重置」清空记忆；「客服帮助」查看说明；「客服状态」查看状态。'
     ),
     type='application',
-    homepage='https://github.com/owner/nonebot-plugin-advisor',
+    homepage='https://github.com/Lonely-Sails/nonebot-plugin-advisor',
     config=Config,
     supported_adapters=inherit_supported_adapters(
         'nonebot_plugin_alconna', 'nonebot_plugin_uninfo'
     ),
-    extra={'author': 'owner <your@mail.com>'},
 )
 
 driver = get_driver()

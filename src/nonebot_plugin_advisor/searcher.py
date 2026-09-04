@@ -91,13 +91,15 @@ async def web_search(
     errors: list[str] = []
     try:
         if searxng_url.strip():
-            async with asyncio.timeout(timeout_):
-                return await _searxng_search(query, searxng_url, max_results)
+            return await asyncio.wait_for(
+                _searxng_search(query, searxng_url, max_results), timeout=timeout_
+            )
     except Exception as e:
         errors.append(f'searxng: {e}')
     try:
-        async with asyncio.timeout(timeout_):
-            return await _duckduckgo_search(query, max_results)
+        return await asyncio.wait_for(
+            _duckduckgo_search(query, max_results), timeout=timeout_
+        )
     except Exception as e:
         errors.append(f'duckduckgo: {e}')
     raise SearchError('搜索失败：' + ('；'.join(errors) or '未知原因'))

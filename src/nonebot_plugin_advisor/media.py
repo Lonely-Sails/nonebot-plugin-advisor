@@ -12,23 +12,18 @@ from nonebot.adapters import Bot, Event
 
 from .utils import safe_filename, http_get_bytes, looks_like_url
 
-try:
-    from nonebot_plugin_alconna.uniseg import (
-        At,
-        File,
-        Text,
-        AtAll,
-        Image,
-        Other,
-        Reply,
-        Reference,
-        UniMessage,
-    )
-    from nonebot_plugin_alconna.uniseg.tools import image_fetch
-except ImportError:  # pragma: no cover
-    UniMessage = None  # type: ignore[assignment]
-    Text = Image = File = Reply = At = AtAll = Reference = Other = None  # type: ignore
-    image_fetch = None  # type: ignore
+from nonebot_plugin_alconna.uniseg import (
+    At,
+    File,
+    Text,
+    AtAll,
+    Image,
+    Other,
+    Reply,
+    Reference,
+    UniMessage,
+)
+from nonebot_plugin_alconna.uniseg.tools import image_fetch
 
 _MEDIA_TIMEOUT = 30.0
 

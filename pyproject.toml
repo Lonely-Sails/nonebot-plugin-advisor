@@ -3,7 +3,7 @@ name = "nonebot-plugin-advisor"
 version = "0.1.0"
 description = "一个多功能的、跨平台的 LLM 项目客服。"
 readme = "README.md"
-requires-python = ">= 3.12, < 4.0"
+requires-python = ">= 3.10, < 4.0"
 authors = [{ name = "owner", email = "owner@gmail.com" }]
 dependencies = [
   "httpx >= 0.27.0,<1.0.0",
@@ -73,7 +73,7 @@ bump = "bump-my-version bump"
 show-bump = "bump-my-version show-bump"
 
 [tool.pyright]
-pythonVersion = "3.12"
+pythonVersion = "3.10"
 pythonPlatform = "All"
 defineConstant = { PYDANTIC_V2 = true }
 executionEnvironments = [
@@ -100,6 +100,7 @@ asyncio_default_fixture_loop_scope = "session"
 
 [tool.ruff]
 line-length = 88
+target-version = "py310"
 
 [tool.ruff.format]
 line-ending = "lf"

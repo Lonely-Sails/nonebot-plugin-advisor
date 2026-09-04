@@ -61,7 +61,7 @@ def _cjk_font_path() -> str | None:
 
 
 def _parse_color(
-    color: str, default: tuple[int, int, int, int] = (255, 0, 0, 255)
+    color: str | None, default: tuple[int, int, int, int] = (255, 0, 0, 255)
 ) -> tuple[int, int, int, int]:
     """解析 #RRGGBB / #RRGGBBAA 或 r,g,b / r,g,b,a。"""
     color = str(color or '').strip()

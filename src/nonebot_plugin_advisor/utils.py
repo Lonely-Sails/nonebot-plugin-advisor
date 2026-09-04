@@ -34,13 +34,16 @@ def strip_html(raw: str) -> str:
 
 async def http_get_bytes(url: str, timeout_: float = 20.0) -> bytes:
     """下载二进制，带 UA 与 asyncio 超时保护。"""
-    async with asyncio.timeout(timeout_):
+
+    async def _fetch() -> bytes:
         async with httpx.AsyncClient(
             timeout=timeout_, follow_redirects=True, headers={'User-Agent': _UA}
         ) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             return resp.content
+
+    return await asyncio.wait_for(_fetch(), timeout=timeout_)
 
 
 async def http_get_text(url: str, timeout_: float = 20.0) -> str:

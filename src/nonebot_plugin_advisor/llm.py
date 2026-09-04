@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .config import Config
+
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI, APIStatusError, RateLimitError, APIConnectionError
 
 try:
     from openai import AsyncOpenAI, APIStatusError, RateLimitError, APIConnectionError
 except ImportError:  # pragma: no cover
     AsyncOpenAI = None  # type: ignore[assignment,misc]
+
 
 _DESCRIBE_PROMPT = (
     '请用中文简洁地描述这张图片的内容，尽量说清图中元素、界面/步骤，最多 150 字。'
@@ -57,7 +61,7 @@ class LLMClient:
 
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
-        self._client: AsyncOpenAI | None = None
+        self._client: Any = None
 
     # ── 生命周期 ────────────────────────────────────────────────────────
     @property
@@ -65,7 +69,7 @@ class LLMClient:
         return bool(self.cfg.advisor_llm_api_key)
 
     @property
-    def client(self) -> AsyncOpenAI:
+    def client(self) -> Any:
         if not self.available:
             raise LLMNotConfigured('未配置 advisor_llm_api_key，LLM 客服未启用')
         if AsyncOpenAI is None:  # pragma: no cover
@@ -188,7 +192,7 @@ class LLMClient:
         try:
             resp = await self.client.chat.completions.create(
                 model=model or self.vision_model,
-                messages=messages,
+                messages=messages,  # type: ignore[arg-type]
                 max_tokens=256,
                 temperature=0.2,
             )

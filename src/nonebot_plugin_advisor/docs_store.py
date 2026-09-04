@@ -22,7 +22,7 @@ import asyncio
 import hashlib
 import subprocess
 from pathlib import Path
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from dataclasses import field, dataclass
 
 from nonebot import logger
@@ -69,8 +69,7 @@ def _iter_files(root: Path, exts: tuple[str, ...]) -> list[str]:
     for dirpath, dirnames, filenames in os.walk(root):
         # 原地过滤隐藏目录，避免进入
         dirnames[:] = [
-            d
-            for d in dirnames
+            d for d in dirnames
             if not d.startswith('.') and d != '.git' and d != '__pycache__'
         ]
         for fn in filenames:
@@ -133,7 +132,7 @@ class KnowledgeBase:
     def index(self) -> dict:
         if self._index is None:
             self._index = json_load(self.index_path, {}) or {}
-        return self._index
+        return self._index or {}
 
     # ── 同步 ────────────────────────────────────────────────────────────
     async def sync(self, *, force: bool = False) -> SyncReport:
@@ -243,7 +242,7 @@ class KnowledgeBase:
         }
         index['source'] = self.cfg.advisor_kb_source.strip()
         index['head'] = head
-        index['synced_at'] = datetime.now(UTC).isoformat()
+        index['synced_at'] = datetime.now(timezone.utc).isoformat()
         self._index = index
         json_dump(self.index_path, index)
         self._text_cache.clear()

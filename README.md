@@ -2,7 +2,7 @@
     <a href="https://v2.nonebot.dev/store">
     <img src="https://raw.githubusercontent.com/fllesser/nonebot-plugin-template/refs/heads/resource/.docs/NoneBotPlugin.svg" width="310" alt="logo"></a>
 
-# nonebot-plugin-advisor
+# NoneBot-Plugin-Advisor
 </div>
 
 基于 **OpenAI 兼容格式**的跨平台 LLM 客服。让机器人像一个**真人客服**一样为你的项目提供支持：读文档、查日志、看截图、在图上圈注并回发、必要时联网搜索。

@@ -65,6 +65,41 @@ def truncate(text: str, limit: int) -> str:
     return text[:limit] + '\n…（内容过长已截断）'
 
 
+def split_text(text: str, max_length: int) -> list[str]:
+    """把长文本按自然边界拆成不超过 max_length 的多段。
+
+    优先在换行、句号、逗号等自然边界处切分，避免把一句话拦腰截断。
+    若某段仍超过 max_length，则硬切。
+    """
+    text = text.strip()
+    if not text:
+        return []
+    if len(text) <= max_length:
+        return [text]
+
+    # 自然边界（按优先级）：空行 > 换行 > 句号/问号/感叹号 > 逗号/分号
+    boundaries = ['\n\n', '\n', '。', '？', '！', '；', '，', '、', ' ']
+    segments: list[str] = []
+    remaining = text
+    while remaining:
+        if len(remaining) <= max_length:
+            segments.append(remaining.strip())
+            break
+        # 在 max_length 范围内找最靠后的自然边界
+        cut = -1
+        for b in boundaries:
+            idx = remaining.rfind(b, 0, max_length)
+            if idx > 0:
+                cut = idx + len(b)
+                break
+        if cut <= 0:
+            # 找不到自然边界，硬切
+            cut = max_length
+        segments.append(remaining[:cut].strip())
+        remaining = remaining[cut:].strip()
+    return [s for s in segments if s]
+
+
 def clamp(value: int, low: int, high: int) -> int:
     return max(low, min(high, value))
 

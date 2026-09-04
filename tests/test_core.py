@@ -16,6 +16,40 @@ def _png_bytes(width: int = 200, height: int = 100) -> bytes:
     return buf.getvalue()
 
 
+def test_split_text():
+    """分段发送：短文本不分段、长文本按自然边界切分、硬切不丢内容。"""
+    from nonebot_plugin_advisor.utils import split_text
+
+    # 短文本不分段
+    assert split_text('你好', 200) == ['你好']
+    # 空文本
+    assert split_text('', 100) == []
+    assert split_text('   ', 100) == []
+
+    # 长文本按句号分段，每段不超过 max_length
+    text = '第一段内容。' * 50
+    segs = split_text(text, 100)
+    assert len(segs) > 1
+    assert all(len(s) <= 100 for s in segs)
+    assert ''.join(segs) == text
+
+    # 带换行的文本优先在换行处切分
+    text2 = '第一行\n第二行\n第三行\n' + '很长的内容' * 100
+    segs2 = split_text(text2, 50)
+    assert len(segs2) > 1
+    assert all(len(s) <= 50 for s in segs2)
+    # 每段首尾空白会被清理，但所有非空白字符应完整保留
+    assert ''.join(segs2).replace('\n', '').replace(' ', '') == text2.replace(
+        '\n', ''
+    ).replace(' ', '')
+
+    # 无自然边界的超长文本硬切，内容不丢失
+    text3 = 'x' * 500
+    segs3 = split_text(text3, 100)
+    assert [len(s) for s in segs3] == [100, 100, 100, 100, 100]
+    assert ''.join(segs3) == text3
+
+
 @pytest.mark.asyncio
 async def test_session_text_file_line_reading(tmp_path):
     """上传 txt/log 后可以按行读取、搜索。"""

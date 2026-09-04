@@ -34,6 +34,7 @@ from nonebot_plugin_alconna.uniseg import Image, UniMessage
 from .llm import LLMClient, LLMNotConfigured
 from .agent import run_agent
 from .media import parse_event_message
+from .utils import split_text
 from .config import Config, is_superuser
 from .config import plugin_config as cfg
 from .prompts import build_help_text, build_system_prompt
@@ -196,6 +197,51 @@ async def _register_attachments(
     return vfs
 
 
+async def _send_reply(key: str, result) -> None:
+    """发送 agent 结果：可配置拆成多条消息逐条发送（更像真人）。"""
+    images = list(result.images)
+    if not cfg.advisor_split_message:
+        parts: list[Any] = [result.text]
+        parts.extend(Image(path=str(v.path)) for v in images)
+        try:
+            await UniMessage(parts).send(reply_to=True)
+            logger.info(
+                f'Replied to session {key}: {result.text[:60]!r}'
+                + (f' (with {len(images)} image(s))' if images else '')
+            )
+        except Exception as e:
+            logger.error(f'Failed to send reply to session {key}: {e}')
+        return
+
+    # 分段发送：文本逐段发，图片跟随最后一段
+    segments = split_text(result.text, cfg.advisor_split_max_length)
+    if not segments:
+        segments = [result.text]
+    total = len(segments)
+    for i, seg in enumerate(segments):
+        parts: list[Any] = [seg]
+        # 图片附加在最后一段
+        if i == total - 1:
+            parts.extend(Image(path=str(v.path)) for v in images)
+        try:
+            await UniMessage(parts).send(reply_to=True)
+            logger.debug(
+                f'Sent segment {i + 1}/{total} to session {key}: {seg[:60]!r}'
+            )
+        except Exception as e:
+            logger.error(
+                f'Failed to send segment {i + 1}/{total} to session {key}: {e}'
+            )
+            return
+        # 段间间隔（最后一段后不再等待）
+        if i < total - 1 and cfg.advisor_split_interval > 0:
+            await asyncio.sleep(cfg.advisor_split_interval)
+    logger.info(
+        f'Replied to session {key} in {total} segment(s): {result.text[:60]!r}'
+        + (f' (with {len(images)} image(s))' if images else '')
+    )
+
+
 async def _handle_chat(bot: Bot, event: Event) -> None:
     """客服主流程。未配置 LLM 时直接提示（不触发 uninfo/模型调用）。"""
     if not cfg.advisor_llm_api_key:
@@ -278,16 +324,7 @@ async def _handle_chat(bot: Bot, event: Event) -> None:
             return
 
     # 4) 发送结果（文本 + 可能的标注图）
-    parts: list[Any] = [result.text]
-    parts.extend(Image(path=str(v.path)) for v in result.images)
-    try:
-        await UniMessage(parts).send(reply_to=True)
-        logger.info(
-            f'Replied to session {key}: {result.text[:60]!r}'
-            + (f' (with {len(result.images)} image(s))' if result.images else '')
-        )
-    except Exception as e:
-        logger.error(f'Failed to send reply to session {key}: {e}')
+    await _send_reply(key, result)
 
 
 @chat.handle()

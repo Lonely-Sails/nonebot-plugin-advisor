@@ -89,6 +89,12 @@ class Config(BaseModel):
     """出错时的兜底回复，留空则不发"""
     advisor_image_inline: bool = False
     """是否把用户发的图片以多模态形式直接塞给主模型（需要主模型支持看图）"""
+    advisor_split_message: bool = False
+    """是否把回答拆成多条消息逐条发送（更像真人客服）"""
+    advisor_split_max_length: int = 50
+    """分段发送时每段的最大字符数"""
+    advisor_split_interval: float = 0.5
+    """分段发送时每段之间的间隔（秒）"""
     advisor_history_max_turns: int = 12
     """每个会话保留的最大对话轮数（用户+客服各算一轮）"""
     advisor_conversation_ttl: int = 3600

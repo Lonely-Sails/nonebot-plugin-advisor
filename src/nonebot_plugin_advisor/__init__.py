@@ -219,12 +219,12 @@ async def _send_reply(key: str, result) -> None:
         segments = [result.text]
     total = len(segments)
     for i, seg in enumerate(segments):
-        parts: list[Any] = [seg]
+        seg_parts: list[Any] = [seg]
         # 图片附加在最后一段
         if i == total - 1:
-            parts.extend(Image(path=str(v.path)) for v in images)
+            seg_parts.extend(Image(path=str(v.path)) for v in images)
         try:
-            await UniMessage(parts).send(reply_to=True)
+            await UniMessage(seg_parts).send(reply_to=True)
             logger.debug(
                 f'Sent segment {i + 1}/{total} to session {key}: {seg[:60]!r}'
             )

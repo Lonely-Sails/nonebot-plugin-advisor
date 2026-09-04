@@ -157,9 +157,7 @@ class KnowledgeBase:
                 raise RuntimeError(f'本地文档目录不存在：{self.repo_dir}')
             report = await self._scan_and_index(force=force, head=head)
         except Exception as e:
-            logger.opt(exception=self.cfg.advisor_debug).error(
-                f'KB sync failed: {e}'
-            )
+            logger.opt(exception=self.cfg.advisor_debug).error(f'KB sync failed: {e}')
             report.ok = False
             report.message = str(e)
         elapsed = time.perf_counter() - started

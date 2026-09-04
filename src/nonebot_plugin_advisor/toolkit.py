@@ -586,9 +586,7 @@ def tools_to_openai(tools: list[Tool]) -> list[dict[str, Any]]:
 
 
 async def dispatch_tool(tool: Tool, args: dict[str, Any], ctx: ToolContext) -> str:
-    logger.debug(
-        f'Tool call {tool.name}: {json.dumps(args, ensure_ascii=False)[:200]}'
-    )
+    logger.debug(f'Tool call {tool.name}: {json.dumps(args, ensure_ascii=False)[:200]}')
     try:
         result = await tool.handler(args, ctx)
     except Exception as e:

@@ -8,7 +8,7 @@
 - 用户发来的**图片 / txt / log** 会自动进入会话的“内存文件系统”，agent 可用工具**按行读取、搜索关键词**
 - **引用消息**里的图片/文件也会进入会话
 - 提供**图片标注工具**：画矩形/椭圆/箭头/高亮、写不超过 10 个字的文字，标注后随回复回发给用户
-- 可联网搜索（SearXNG / DuckDuckGo 兜底）
+- 可联网搜索（SearXNG / Bing 兜底）
 
 ## 📦 安装
 
@@ -22,7 +22,7 @@ nb plugin install nonebot-plugin-advisor
 plugins = ["nonebot_plugin_advisor"]
 ```
 
-> 依赖：`nonebot2 >= 2.5`、`nonebot-plugin-alconna`、`nonebot-plugin-uninfo`、`nonebot-plugin-localstore`、`nonebot-plugin-apscheduler`、`openai >= 3.8`、`pillow`、`httpx`
+> 依赖：`nonebot2 >= 2.5`、`nonebot-plugin-alconna`、`nonebot-plugin-uninfo`、`nonebot-plugin-localstore`、`nonebot-plugin-apscheduler`、`openai >= 3.8`、`pillow`、`httpx`、`curl-cffi`
 
 ## ⚙️ 配置
 
@@ -45,7 +45,7 @@ ADVISOR_IMAGE_INLINE=false   # 是否把用户图片直接以多模态塞给主�
 
 # ── 联网搜索 ──
 ADVISOR_ENABLE_WEB=true
-# 自建 SearXNG（推荐，无 key）；留空自动退回 DuckDuckGo
+# 自建 SearXNG（推荐，无 key）；留空自动退回 Bing
 ADVISOR_SEARXNG_URL=
 
 # ── 文档知识库：定时拉取仓库并给图片做视觉索引 ──
@@ -82,7 +82,7 @@ ADVISOR_KB_MAX_IMAGES_PER_SYNC=50
 | `ADVISOR_ENABLE_IMAGE_TOOLS` | 否 | `true` | 看图/标注工具开关 |
 | `ADVISOR_ENABLE_WEB` | 否 | `true` | 联网工具开关 |
 | `ADVISOR_AGENT_MAX_ROUNDS` | 否 | `12` | 单次最多调用工具次数 |
-| `ADVISOR_SEARXNG_URL` | 否 | 空 | SearXNG 地址；空则 DuckDuckGo |
+| `ADVISOR_SEARXNG_URL` | 否 | 空 | SearXNG 地址；空则 Bing |
 | `ADVISOR_SEARCH_MAX_RESULTS` | 否 | `5` | 每次搜索条数 |
 | `ADVISOR_KB_SOURCE` | 否 | 空 | 文档仓库 git url / 本地目录 |
 | `ADVISOR_KB_BRANCH` | 否 | 空 | 分支（git 时有效） |

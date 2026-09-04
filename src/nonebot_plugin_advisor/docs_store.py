@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 import asyncio
 import hashlib
 import subprocess
@@ -69,7 +70,8 @@ def _iter_files(root: Path, exts: tuple[str, ...]) -> list[str]:
     for dirpath, dirnames, filenames in os.walk(root):
         # 原地过滤隐藏目录，避免进入
         dirnames[:] = [
-            d for d in dirnames
+            d
+            for d in dirnames
             if not d.startswith('.') and d != '.git' and d != '__pycache__'
         ]
         for fn in filenames:
@@ -142,8 +144,10 @@ class KnowledgeBase:
                 ok=True, message='未配置 advisor_kb_source，跳过知识库同步'
             )
         report = SyncReport()
+        started = time.perf_counter()
         try:
             source = self.cfg.advisor_kb_source.strip()
+            logger.debug(f'知识库同步开始: source={source!r} force={force}')
             head: str | None = None
             if _is_git_source(source):
                 await asyncio.to_thread(self._git_update, source)
@@ -158,23 +162,31 @@ class KnowledgeBase:
             report = await self._scan_and_index(force=force, head=head)
         except Exception as e:
             logger.opt(exception=self.cfg.advisor_debug).error(
-                f'[advisor] 知识库同步失败: {e}'
+                f'知识库同步失败: {e}'
             )
             report.ok = False
             report.message = str(e)
+        elapsed = time.perf_counter() - started
+        if report.ok:
+            logger.info(f'知识库同步完成（{elapsed:.0f}s）: {report.message}')
+        else:
+            logger.warning(
+                f'知识库同步未完成（{elapsed:.0f}s）: {report.message}'
+            )
         return report
 
     def _git_update(self, source: str) -> None:
         repo = self.repo_dir
         branch = self.cfg.advisor_kb_branch.strip()
         if not (repo / '.git').exists():
-            logger.info(f'[advisor] 首次克隆知识库: {source}')
+            logger.info(f'首次克隆知识库: {source}')
             args = ['clone', '--depth', '1']
             if branch:
                 args += ['--branch', branch]
             args += [source, str(repo)]
             _run_git(args, timeout=600)
         else:
+            logger.debug(f'git fetch origin（分支 {branch or "默认"}）')
             _run_git(['fetch', 'origin'], cwd=repo, timeout=600)
             if branch:
                 _run_git(['reset', '--hard', f'origin/{branch}'], cwd=repo, timeout=300)
@@ -231,6 +243,10 @@ class KnowledgeBase:
             pending.append(rel)
 
         pending = pending[: cfg.advisor_kb_max_images_per_sync]
+        logger.debug(
+            f'知识库扫描: 文档 {len(docs)} 图片 {len(images)} '
+            f'本次待索引图片 {len(pending)}（force={force} head={head}）'
+        )
         if pending:
             describe_report = await self._describe_images(root, index, pending)
             report.described = describe_report[0]
@@ -290,6 +306,7 @@ class KnowledgeBase:
                 entry['error'] = None
                 index['images'][rel] = entry
                 ok += 1
+                logger.debug(f'图片已索引 {rel}: 描述 {len(desc)} 字')
             except VisionUnsupported as e:
                 # 模型不支持看图 → 标记错误并跳过，避免每次都重试
                 entry = index['images'].get(rel, {})
@@ -297,7 +314,7 @@ class KnowledgeBase:
                 index['images'][rel] = entry
                 failed += 1
                 errors.append(f'{rel}: 视觉模型不支持图片')
-                logger.warning(f'[advisor] {rel}: 视觉模型不支持图片，已跳过')
+                logger.warning(f'{rel}: 视觉模型不支持图片，已跳过')
                 break  # 同一模型，其余图片也不用试了
             except Exception as e:
                 entry = index['images'].get(rel, {})
@@ -305,7 +322,7 @@ class KnowledgeBase:
                 index['images'][rel] = entry
                 failed += 1
                 errors.append(f'{rel}: {e}')
-                logger.warning(f'[advisor] 图片索引失败 {rel}: {e}')
+                logger.warning(f'图片索引失败 {rel}: {e}')
             # 及时落盘，避免中断丢失
             self._index = index
             json_dump(self.index_path, index)

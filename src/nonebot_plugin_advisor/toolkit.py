@@ -40,7 +40,7 @@ class ToolContext:
     kb: KnowledgeBase | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
-    def kb_or_none(self) -> KnowledgeBase:
+    def kb_or_none(self) -> KnowledgeBase | None:
         return self.kb if (self.kb and self.kb.enabled) else None
 
 
@@ -82,7 +82,7 @@ async def _describe_attachment_image(
     except VisionUnsupported as e:
         return _err(f'模型不支持看图：{e}。请让用户用文字描述图片内容')
     except Exception as e:
-        logger.warning(f'[advisor] describe {name} 失败: {e}')
+        logger.warning(f'describe {name} 失败: {e}')
         return _err(f'图片描述失败：{e}')
 
 
@@ -317,6 +317,8 @@ async def _web_search(args: dict, ctx: ToolContext) -> str:
                 args.get('num_results'), ctx.cfg.advisor_search_max_results
             )
             or ctx.cfg.advisor_search_max_results,
+            fetch_content=True,
+            content_max_chars=ctx.cfg.advisor_fetch_max_chars,
         )
     except Exception as e:
         return _err(str(e))
@@ -325,6 +327,9 @@ async def _web_search(args: dict, ctx: ToolContext) -> str:
     out = [f'“{q}”的搜索结果：']
     for r in results:
         out.append(f'- {r.get("title")}\n  {r.get("url")}\n  {r.get("snippet")}')
+        content = r.get('content')
+        if content:
+            out.append(f'  正文：{content}')
     return '\n'.join(out)
 
 
@@ -583,11 +588,11 @@ def tools_to_openai(tools: list[Tool]) -> list[dict[str, Any]]:
 
 
 async def dispatch_tool(tool: Tool, args: dict[str, Any], ctx: ToolContext) -> str:
-    logger.debug(
-        f'[advisor] 工具调用 {tool.name}: {json.dumps(args, ensure_ascii=False)[:200]}'
-    )
+    logger.debug(f'工具调用 {tool.name}: {json.dumps(args, ensure_ascii=False)[:200]}')
     try:
-        return await tool.handler(args, ctx)
+        result = await tool.handler(args, ctx)
     except Exception as e:
-        logger.warning(f'[advisor] 工具 {tool.name} 执行异常: {e}')
+        logger.warning(f'工具 {tool.name} 执行异常: {e}')
         return f'错误：工具执行失败（{type(e).__name__}）：{e}'
+    logger.debug(f'工具 {tool.name} 返回 {len(result)} 字: {result[:300]!r}')
+    return result

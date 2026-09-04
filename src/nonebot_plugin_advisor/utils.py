@@ -46,16 +46,6 @@ async def http_get_bytes(url: str, timeout_: float = 20.0) -> bytes:
     return await asyncio.wait_for(_fetch(), timeout=timeout_)
 
 
-async def http_get_text(url: str, timeout_: float = 20.0) -> str:
-    resp_bytes = await http_get_bytes(url, timeout_)
-    for enc in ('utf-8', 'utf-8-sig', 'gb18030', 'latin-1'):
-        try:
-            return resp_bytes.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    return resp_bytes.decode('utf-8', errors='replace')
-
-
 def safe_filename(name: str) -> str:
     """清理文件名，去掉路径分隔与危险字符。"""
     name = name.replace('\\', '/').split('/')[-1]

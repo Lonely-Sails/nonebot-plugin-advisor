@@ -218,52 +218,73 @@ async def _handle_chat(bot: Bot, event: Event) -> None:
 
     # 1) 解析当前消息 + 引用消息
     parsed = await parse_event_message(event, bot)
+    logger.debug(
+        f'收到消息: 会话={key!r} 用户={user_name!r} 场景={scene_name!r} '
+        f'text={parsed.text.strip()[:200]!r} quoted={parsed.quoted_text[:120]!r} '
+        f'media={len(parsed.media)} note={parsed.note!r}'
+    )
     vfs = await _register_attachments(conv, parsed)
+    if vfs:
+        logger.info(
+            f'会话 {key} 登记附件 {len(vfs)} 个: '
+            + ', '.join(f'{v.name}({v.kind})' for v in vfs)
+        )
     user_text = parsed.text.strip()
     if parsed.note:
         user_text = f'{user_text}\n（系统提示：{parsed.note}）'.strip()
     if not user_text and not vfs:
         user_text = '（用户只是 @ 了我，没有发具体内容）'
     conv.add_user_turn(user_text, vfs)
+    logger.debug(f'追加用户轮次: {user_text[:200]!r}')
 
     # 2) 先回一句“收到”，再异步处理（体感更接近真人）
     if cfg.advisor_ack_text:
         try:
             await UniMessage.text(cfg.advisor_ack_text).send(reply_to=True)
-        except Exception:
-            pass
+            logger.debug(f'已发送“收到”提示给会话 {key}')
+        except Exception as e:
+            logger.debug(f'发送“收到”提示失败: {e}')
 
     # 3) 加锁运行 agent（同一会话串行，避免消息错乱）
     async with conv.lock:
         try:
+            system_prompt = build_system_prompt(
+                cfg,
+                user_name=conv.user_name,
+                platform_desc=scene_name,
+                kb_line=_kb_line(session),
+                tool_names=[t.name for t in _tools],
+            )
             result = await run_agent(
                 cfg=cfg,
                 llm=_get_llm(),
                 conv=conv,
                 kb=_kb if _kb and _kb.enabled else None,
                 tools=_tools,
-                system_prompt=build_system_prompt(
-                    cfg,
-                    user_name=conv.user_name,
-                    platform_desc=scene_name,
-                    kb_line=_kb_line(session),
-                    tool_names=[t.name for t in _tools],
-                ),
+                system_prompt=system_prompt,
             )
         except LLMNotConfigured:
+            logger.warning(f'会话 {key}: LLM 未配置，无法处理')
             await UniMessage.text('客服未配置 LLM，请检查 ADVISOR_LLM_API_KEY。').send(
                 reply_to=True
             )
             return
         except Exception as e:
-            logger.opt(exception=True).error(f'[advisor] agent 执行异常: {e}')
+            logger.opt(exception=True).error(f'agent 执行异常: {e}')
             await UniMessage.text(cfg.advisor_cannot_answer_text).send(reply_to=True)
             return
 
     # 4) 发送结果（文本 + 可能的标注图）
     parts: list[Any] = [result.text]
     parts.extend(Image(path=str(v.path)) for v in result.images)
-    await UniMessage(parts).send(reply_to=True)
+    try:
+        await UniMessage(parts).send(reply_to=True)
+        logger.info(
+            f'已回复会话 {key}: {result.text[:60]!r}'
+            + (f'（附图片 {len(result.images)} 张）' if result.images else '')
+        )
+    except Exception as e:
+        logger.error(f'发送客服回复到 {key} 失败: {e}')
 
 
 @chat.handle()
@@ -296,16 +317,19 @@ async def _reset(session: Uninfo):
     key = _session_key(session)
     if _memory is not None:
         _memory.drop(key)
+    logger.info(f'重置会话记忆: {key}')
     await UniMessage.text('好哒，已忘记之前的对话，重新开始～').send()
 
 
 @help_matcher.handle()
 async def _help():
+    logger.debug('发送客服帮助')
     await UniMessage.text(build_help_text(cfg)).send()
 
 
 @status_matcher.handle()
 async def _status(session: Uninfo):
+    logger.debug(f'查询客服状态: {_session_key(session)}')
     _ensure_services()
     llm_state = (
         f'LLM：{"已配置" if cfg.advisor_llm_api_key else "未配置"}'
@@ -326,12 +350,14 @@ async def _status(session: Uninfo):
 @sync_matcher.handle()
 async def _sync(bot: Bot, event: Event, session: Uninfo):
     if not is_superuser(_user_id_of(session)):
+        logger.warning(f'非超管尝试触发同步: {_user_id_of(session)}')
         await UniMessage.text('只有超级管理员才能触发文档同步哦～').send()
         return
     kb = _get_kb()
     if not kb.enabled:
         await UniMessage.text('未配置文档仓库（ADVISOR_KB_SOURCE），无法同步。').send()
         return
+    logger.info(f'手动触发文档同步: {_user_id_of(session)}')
     await UniMessage.text('收到，开始同步文档仓库，可能需要几分钟…').send()
 
     # 后台执行，完成后主动通知
@@ -342,8 +368,9 @@ async def _sync(bot: Bot, event: Event, session: Uninfo):
             msg += '\n' + '\n'.join(report.errors[:5])
         try:
             await UniMessage.text(f'知识库同步完成：{msg}').send(target=event, bot=bot)
+            logger.debug(f'手动同步结果已发送: {msg}')
         except Exception as e:
-            logger.error(f'[advisor] 同步结果发送失败: {e}')
+            logger.error(f'同步结果发送失败: {e}')
 
     _spawn(_run())
 
@@ -352,23 +379,32 @@ async def _sync(bot: Bot, event: Event, session: Uninfo):
 async def _kb_sync_job() -> None:
     try:
         report = await _get_kb().sync(force=False)
-        logger.info(f'[advisor] 定时知识库同步: {report.message or report.ok}')
+        logger.debug(f'定时知识库同步任务返回: {report.message or report.ok}')
     except Exception as e:
-        logger.error(f'[advisor] 定时知识库同步失败: {e}')
+        logger.error(f'定时知识库同步失败: {e}')
 
 
 async def _purge_job() -> None:
     try:
         n = _get_memory().purge_expired()
         if n:
-            logger.info(f'[advisor] 清理过期会话 {n} 个')
+            logger.info(f'清理过期会话 {n} 个')
     except Exception as e:
-        logger.warning(f'[advisor] 清理过期会话失败: {e}')
+        logger.warning(f'清理过期会话失败: {e}')
 
 
 @driver.on_startup
 async def _on_startup() -> None:
     _ensure_services()
+    kb_enabled = _get_kb().enabled
+    logger.info(
+        '服务启动: '
+        f'LLM={"开" if cfg.advisor_llm_api_key else "关"}({cfg.advisor_llm_model}) '
+        f'工具={len(_tools)} 知识库={"开" if kb_enabled else "关"} '
+        f'联网={"开" if cfg.advisor_enable_web else "关"} '
+        f'debug={cfg.advisor_debug}'
+    )
+    logger.debug(f'可用工具: {[t.name for t in _tools]}')
     # 定期清理过期会话
     scheduler.add_job(
         _purge_job,
@@ -392,7 +428,7 @@ async def _on_startup() -> None:
                 max_instances=1,
                 coalesce=True,
             )
-            logger.info(f'[advisor] 知识库定时同步已注册: {cfg.advisor_kb_sync_cron}')
+            logger.info(f'知识库定时同步已注册: {cfg.advisor_kb_sync_cron}')
         elif cfg.advisor_kb_sync_interval > 0:
             scheduler.add_job(
                 _kb_sync_job,
@@ -404,7 +440,7 @@ async def _on_startup() -> None:
                 coalesce=True,
             )
             logger.info(
-                '[advisor] 知识库定时同步已注册: 每 '
+                '知识库定时同步已注册: 每 '
                 f'{cfg.advisor_kb_sync_interval} 分钟'
             )
         # 启动后同步一次（不阻塞启动）

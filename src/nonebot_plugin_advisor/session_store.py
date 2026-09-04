@@ -89,6 +89,10 @@ class Turn:
         if self.role == 'assistant':
             return {'role': 'assistant', 'content': self.text or '...'}
         text = (self.text or '') + self._media_marker()
+        if inline_images and self.media:
+            n_img = len([m for m in self.media[:max_images] if m.kind == 'image'])
+            if n_img:
+                logger.debug(f'用户轮次内联 {n_img} 张图片给主模型')
         if not inline_images or not self.media:
             return {'role': 'user', 'content': text}
         content: list[dict[str, Any]] = [{'type': 'text', 'text': text}]
@@ -104,7 +108,7 @@ class Turn:
                     }
                 )
             except OSError as e:
-                logger.warning(f'[advisor] 图片读取失败 {m.name}: {e}')
+                logger.warning(f'图片读取失败 {m.name}: {e}')
         return {'role': 'user', 'content': content}
 
 
@@ -186,6 +190,9 @@ class Conversation:
             )
         name = self._unique_name(raw_name or 'file')
         path = self.attach_dir / name
+        logger.debug(
+            f'写入附件 {name}: {len(data)} 字节 media_type={media_type!r}'
+        )
         path.write_bytes(data)
         ext = Path(name).suffix.lower()
         kind: FileKind
@@ -220,18 +227,23 @@ class Conversation:
                     ext_img = Path(name).suffix.lstrip('.') or 'png'
                     vf.description = await llm.describe_image_file(str(path), ext_img)
                 except Exception as e:
-                    logger.warning(f'[advisor] 图片描述失败 {name}: {e}')
+                    logger.warning(f'图片描述失败 {name}: {e}')
                     vf.description = None
         elif kind == 'text':
             # 只登记行数（供按行读取），内容留在磁盘
             vf.total_lines = data.count(b'\n') + (0 if data.endswith(b'\n') else 1)
             if vf.total_lines > self.cfg.advisor_upload_max_lines:
                 logger.info(
-                    f'[advisor] {name} 共 {vf.total_lines} 行，超过 '
+                    f'{name} 共 {vf.total_lines} 行，超过 '
                     f'{self.cfg.advisor_upload_max_lines} 行限制，仍可按行读取'
                 )
         self.files[name] = vf
         self.touch()
+        logger.info(
+            f'会话 {self.key} 新增附件 {name}: kind={kind} '
+            f'size={fmt_size(len(data))}'
+            + (f' 描述={vf.description[:60]}' if vf.description else '')
+        )
         return vf
 
     # ── 文本文件读取 ────────────────────────────────────────────────────
@@ -364,6 +376,7 @@ class SessionMemory:
                 cfg=self.cfg,
             )
             self._convs[key] = conv
+            logger.debug(f'新建会话 {key}（附件目录 {conv.attach_dir}）')
         else:
             if user_name:
                 conv.user_name = user_name

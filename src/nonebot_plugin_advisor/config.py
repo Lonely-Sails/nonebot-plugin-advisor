@@ -118,7 +118,7 @@ class Config(BaseModel):
 
     # ── 联网搜索 ────────────────────────────────────────────────────────
     advisor_searxng_url: str = ''
-    """自建 SearXNG 实例地址；留空则用 DuckDuckGo 兜底"""
+    """自建 SearXNG 实例地址；留空则用 Bing 兜底"""
     advisor_search_max_results: int = 5
     """每次搜索返回的条数"""
     advisor_fetch_max_chars: int = 6000

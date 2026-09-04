@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
+
+from nonebot import logger
 
 from .config import Config
 
@@ -144,9 +147,16 @@ class LLMClient:
             kwargs['tools'] = tools
         if tool_choice is not None:
             kwargs['tool_choice'] = tool_choice
+        logger.debug(
+            f'LLM chat 请求: model={kwargs["model"]} '
+            f'messages={len(messages)} tools={len(tools) if tools else 0} '
+            f'temperature={kwargs["temperature"]}'
+        )
+        t0 = time.perf_counter()
         try:
             resp = await self.client.chat.completions.create(**kwargs)
         except Exception as e:
+            logger.debug(f'LLM chat 请求失败: {type(e).__name__}: {e}')
             msg = self._translate_error(e)
             if isinstance(e, VisionUnsupported):
                 raise VisionUnsupported(msg) from e
@@ -168,6 +178,22 @@ class LLMClient:
                 }
                 for tc in message.tool_calls
             ]
+        elapsed = time.perf_counter() - t0
+        n_tcalls = len(data.get('tool_calls') or [])
+        usage = getattr(resp, 'usage', None)
+        tok = ''
+        try:
+            pt = getattr(usage, 'prompt_tokens', None)
+            ct = getattr(usage, 'completion_tokens', None)
+            if pt is not None or ct is not None:
+                tok = f' prompt={pt} completion={ct}'
+        except Exception:
+            pass
+        logger.info(
+            f'LLM 返回: {kwargs["model"]} 耗时 {elapsed:.1f}s'
+            f'{tok} 工具调用={n_tcalls}'
+        )
+        logger.debug(f'LLM 回复: {(str(data.get("content") or ""))[:500]!r}')
         return data
 
     # ── 视觉描述 ────────────────────────────────────────────────────────
@@ -189,6 +215,11 @@ class LLMClient:
                 ],
             }
         ]
+        logger.debug(
+            f'视觉请求: model={model or self.vision_model} '
+            f'prompt={prompt[:100]!r} 图片data_url={len(image_data_url_)} 字符'
+        )
+        t0 = time.perf_counter()
         try:
             resp = await self.client.chat.completions.create(
                 model=model or self.vision_model,
@@ -197,6 +228,7 @@ class LLMClient:
                 temperature=0.2,
             )
         except Exception as e:
+            logger.debug(f'视觉请求失败: {type(e).__name__}: {e}')
             msg = self._translate_error(e)
             if isinstance(e, VisionUnsupported):
                 raise VisionUnsupported(msg) from e
@@ -204,7 +236,13 @@ class LLMClient:
         choice = resp.choices[0] if resp.choices else None
         if not choice or not choice.message.content:
             raise LLMError('视觉模型未返回描述')
-        return str(choice.message.content).strip()
+        desc = str(choice.message.content).strip()
+        elapsed = time.perf_counter() - t0
+        logger.debug(
+            f'视觉返回: 耗时 {elapsed:.1f}s 描述 {len(desc)} 字: '
+            f'{desc[:120]!r}'
+        )
+        return desc
 
     async def describe_image_file(
         self, path: str, ext: str | None = None, prompt: str | None = None
@@ -213,6 +251,7 @@ class LLMClient:
         import os
 
         ext = ext or os.path.splitext(path)[1].lstrip('.')
+        logger.debug(f'视觉描述图片文件: {path} (ext={ext})')
         data_url = image_data_url(path, ext)
         if prompt:
             return await self.describe_image(data_url, prompt=prompt)

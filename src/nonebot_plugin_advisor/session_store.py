@@ -23,7 +23,7 @@ from nonebot import logger
 from .llm import LLMClient, image_data_url
 from .utils import safe_filename, guess_text_encoding
 from .config import TEXT_EXTS, IMAGE_EXTS, Config
-from .imageops import image_info, annotate_image
+from .imageops import image_info, annotate_image, compress_image
 
 FileKind = Literal['image', 'text', 'binary']
 
@@ -63,7 +63,7 @@ class Turn:
     media: list[VFile] = field(default_factory=list)
     created: float = field(default_factory=time.time)
 
-    def _media_marker(self) -> str:
+    def _media_marker(self, *, inline_images: bool = False) -> str:
         """把附件信息以文本形式“塞进历史”，让模型知道用户带了什么。"""
         if not self.media:
             return ''
@@ -71,7 +71,10 @@ class Turn:
         for media in self.media:
             if media.kind == 'image':
                 dims = f'（{media.width}×{media.height}）' if media.width else ''
-                if media.description:
+                if inline_images:
+                    # 图片已以多模态内联给主模型，无需文字描述或工具提示
+                    lines.append(f'[附图 {media.name}{dims}]')
+                elif media.description:
                     lines.append(f'[附图 {media.name}{dims}：{media.description}]')
                 else:
                     lines.append(
@@ -91,7 +94,7 @@ class Turn:
         """转成 openai 消息。assistant 永远只有文本；user 可按需内联图片。"""
         if self.role == 'assistant':
             return {'role': 'assistant', 'content': self.text or '...'}
-        text = (self.text or '') + self._media_marker()
+        text = (self.text or '') + self._media_marker(inline_images=inline_images)
         if inline_images and self.media:
             image_count = len(
                 [media for media in self.media[:max_images] if media.kind == 'image']
@@ -107,11 +110,12 @@ class Turn:
             if media.kind != 'image':
                 continue
             try:
-                ext = Path(media.name).suffix.lstrip('.') or 'png'
+                # 压缩为 JPEG 字节再内联，减小 base64 体积
+                data = compress_image(str(media.path))
                 content.append(
                     {
                         'type': 'image_url',
-                        'image_url': {'url': image_data_url(str(media.path), ext)},
+                        'image_url': {'url': image_data_url(data, 'jpg')},
                     }
                 )
             except OSError as error:
@@ -227,7 +231,8 @@ class Conversation:
                 vf.media_type = vf.media_type or f'image/{info["format"]}'
             except Exception:
                 pass
-            if llm and llm.available:
+            # 图片内联模式下，图片会以多模态直接喂给主模型，无需再转成文字描述
+            if not self.cfg.advisor_image_inline and llm and llm.available:
                 try:
                     ext_img = Path(name).suffix.lstrip('.') or 'png'
                     vf.description = await llm.describe_image_file(str(path), ext_img)

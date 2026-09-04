@@ -25,7 +25,7 @@ require('nonebot_plugin_alconna')
 require('nonebot_plugin_localstore')
 require('nonebot_plugin_apscheduler')
 
-from nonebot_plugin_uninfo import Uninfo, get_session
+from nonebot_plugin_uninfo import Uninfo, SceneType, get_session
 from nonebot_plugin_alconna import on_alconna
 from nonebot_plugin_localstore import get_plugin_data_dir, get_plugin_cache_dir
 from nonebot_plugin_apscheduler import scheduler
@@ -215,8 +215,12 @@ async def _handle_chat(bot: Bot, event: Event) -> None:
         scene_name = session.scene.name or getattr(session.scene, 'id', '') or '聊天'
     conv = _get_memory().get(key, user_name)
 
-    # 1) 解析当前消息 + 引用消息
-    parsed = await parse_event_message(event, bot)
+    # 1) 解析当前消息 + 引用消息（仅群聊才解析引用）
+    is_group = bool(
+        session is not None
+        and getattr(session.scene, 'scene_type', None) == SceneType.GROUP
+    )
+    parsed = await parse_event_message(event, bot, attach_reply=is_group)
     logger.debug(
         f'Received message: session={key!r} user={user_name!r} scene={scene_name!r} '
         f'text={parsed.text.strip()[:200]!r} quoted={parsed.quoted_text[:120]!r} '

@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import io
 from typing import Any
 from pathlib import Path
 
@@ -250,3 +251,36 @@ def get_valid_ops() -> dict[str, str]:
         'arrow': '箭头：x1,y1,x2,y2,color,width（从起点指向终点）',
         'text': f'文字标注：x,y,text,size,color（text 不超过 {MAX_LABEL_LEN} 个字）',
     }
+
+
+def compress_image(
+    path: str | Path,
+    *,
+    quality: int = 85,
+) -> bytes:
+    """压缩图片为 JPEG 字节，供多模态内联传给模型。
+
+    保持原尺寸，仅转 JPEG 压缩，显著减小 base64 体积。
+    若原图已是 JPEG，则直接返回原字节。
+    """
+    src = Path(path)
+    try:
+        with Image.open(src) as im:
+            fmt = (im.format or '').lower()
+            # 已是 JPEG：直接返回原字节
+            if fmt == 'jpeg':
+                return src.read_bytes()
+            # 统一转 RGB（JPEG 不支持透明通道）
+            if im.mode in ('RGBA', 'LA', 'P'):
+                im = im.convert('RGBA')
+                bg = Image.new('RGB', im.size, (255, 255, 255))
+                bg.paste(im, mask=im.split()[-1])
+                im = bg
+            elif im.mode != 'RGB':
+                im = im.convert('RGB')
+            buf = io.BytesIO()
+            im.save(buf, 'JPEG', quality=quality, optimize=True)
+            return buf.getvalue()
+    except Exception:
+        # 压缩失败时退回原字节，保证功能可用
+        return src.read_bytes()

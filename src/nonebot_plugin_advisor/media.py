@@ -240,14 +240,20 @@ async def parse_unimsg(
     )
 
 
-async def parse_event_message(event: Event, bot: Bot) -> ParsedMessage:
-    """便捷入口：从事件构建 UniMessage（自动附加引用）再解析。"""
+async def parse_event_message(
+    event: Event, bot: Bot, *, attach_reply: bool = True
+) -> ParsedMessage:
+    """便捷入口：从事件构建 UniMessage（可选附加引用）再解析。
+
+    attach_reply=True 时会把引用消息一并解析（仅群聊场景建议开启）。
+    """
     if UniMessage is None:  # pragma: no cover
         return ParsedMessage(text=event.get_plaintext())
     try:
         raw_msg = event.get_message()
         unimsg = UniMessage.of(raw_msg, bot=bot)
-        unimsg = await unimsg.attach_reply(event=event, bot=bot)
+        if attach_reply:
+            unimsg = await unimsg.attach_reply(event=event, bot=bot)
     except Exception as e:
         logger.warning(f'Failed to build UniMessage: {e}')
         return ParsedMessage(text=event.get_plaintext())

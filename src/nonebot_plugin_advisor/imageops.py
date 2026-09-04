@@ -16,14 +16,14 @@ from __future__ import annotations
 from typing import Any
 from pathlib import Path
 
+from PIL import Image, ImageDraw, ImageFont
+
 MAX_LABEL_LEN = 10  # 文字标注上限
 _COORD = 1000  # 归一化坐标系
 
 
 def image_info(path: str | Path) -> dict[str, Any]:
     """返回图片宽高与格式。"""
-    from PIL import Image
-
     with Image.open(path) as im:
         w, h = im.size
         return {
@@ -109,8 +109,6 @@ def _parse_color(
 
 
 def _load_image(path: str | Path):
-    from PIL import Image
-
     im = Image.open(path)
     if im.mode not in ('RGB', 'RGBA', 'L'):
         im = im.convert('RGB')
@@ -120,8 +118,6 @@ def _load_image(path: str | Path):
 
 
 def _font(size: int, text: str):
-    from PIL import ImageFont
-
     try:
         font_path = _cjk_font_path()
         if font_path:
@@ -155,8 +151,6 @@ def annotate_image(
 
     ops 为操作列表，坐标归一化到 0~1000。
     """
-    from PIL import Image, ImageDraw
-
     if not ops:
         raise ValueError('没有要执行的标注操作')
     im = _load_image(src).convert('RGBA')

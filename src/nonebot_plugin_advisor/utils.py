@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import re
 import html
+import json
 import asyncio
 from typing import Any
 from pathlib import Path
 
 import httpx
 
-_UA = (
+_USER_AGENT = (
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
     '(KHTML, like Gecko) Chrome/124.0 Safari/537.36 NonebotAdvisor/1.0'
 )
@@ -37,7 +38,7 @@ async def http_get_bytes(url: str, timeout_: float = 20.0) -> bytes:
 
     async def _fetch() -> bytes:
         async with httpx.AsyncClient(
-            timeout=timeout_, follow_redirects=True, headers={'User-Agent': _UA}
+            timeout=timeout_, follow_redirects=True, headers={'User-Agent': _USER_AGENT}
         ) as client:
             resp = await client.get(url)
             resp.raise_for_status()
@@ -64,8 +65,8 @@ def truncate(text: str, limit: int) -> str:
     return text[:limit] + '\n…（内容过长已截断）'
 
 
-def clamp(v: int, lo: int, hi: int) -> int:
-    return max(lo, min(hi, v))
+def clamp(value: int, low: int, high: int) -> int:
+    return max(low, min(high, value))
 
 
 def looks_like_url(s: str) -> bool:
@@ -73,8 +74,6 @@ def looks_like_url(s: str) -> bool:
 
 
 def json_dump(path: Path, data: Any) -> None:
-    import json
-
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + '.tmp')
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
@@ -82,8 +81,6 @@ def json_dump(path: Path, data: Any) -> None:
 
 
 def json_load(path: Path, default: Any = None) -> Any:
-    import json
-
     if not path.exists():
         return default
     try:

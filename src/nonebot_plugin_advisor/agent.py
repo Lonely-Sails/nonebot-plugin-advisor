@@ -69,12 +69,12 @@ async def run_agent(
     started = time.perf_counter()
 
     logger.info(
-        f'agent 开始: 会话={conv.key!r} 用户={conv.user_name!r} '
+        f'Agent started: session={conv.key!r} user={conv.user_name!r} '
         f'turns={len(conv.turns)} max_rounds={max_rounds} '
-        f'可用工具={len(openai_tools)} '
-        f'知识库={"开" if kb and kb.enabled else "关"}'
+        f'available_tools={len(openai_tools)} '
+        f'kb={"on" if kb and kb.enabled else "off"}'
     )
-    logger.debug(f'系统提示 {len(system_prompt)} 字: {system_prompt[:300]!r}')
+    logger.debug(f'System prompt ({len(system_prompt)} chars): {system_prompt[:300]!r}')
 
     try:
         while rounds < max_rounds:
@@ -91,16 +91,14 @@ async def run_agent(
             if not tool_calls:
                 final_text = (msg.get('content') or '').strip()
                 logger.info(
-                    f'round {rounds}/{max_rounds}: 模型直接回答'
-                    f'（{len(final_text)} 字）'
+                    f'Round {rounds}/{max_rounds}: model answered directly'
+                    f' ({len(final_text)} chars)'
                 )
                 if cfg.advisor_debug:
-                    logger.debug(f'回答内容: {final_text[:500]!r}')
+                    logger.debug(f'Answer content: {final_text[:500]!r}')
                 break
             names = [((tc.get('function') or {}).get('name', '?')) for tc in tool_calls]
-            logger.info(
-                f'round {rounds}/{max_rounds}: 模型请求调用工具 {names}'
-            )
+            logger.info(f'Round {rounds}/{max_rounds}: model requested tools {names}')
 
             # 执行本轮所有工具
             for tc in tool_calls:
@@ -109,7 +107,7 @@ async def run_agent(
                 tool = next((t for t in tools if t.name == name), None)
                 if tool is None:
                     result = f'错误：未知工具 {name}'
-                    logger.warning(f'模型调用了未知工具: {name}')
+                    logger.warning(f'Model called unknown tool: {name}')
                 else:
                     args = _json_args(fn.get('arguments', '{}'))
                     result = await dispatch_tool(tool, args, ctx)
@@ -130,13 +128,13 @@ async def run_agent(
                 break
 
         if final_text is None and not error_msg:
-            error_msg = 'Agent 未能在轮次限制内给出回答'
+            error_msg = 'Agent failed to answer within the round limit'
     except LLMNotConfigured:
         raise
     except LLMError as e:
         error_msg = str(e)
     except Exception as e:
-        logger.opt(exception=cfg.advisor_debug).error(f'agent 运行异常: {e}')
+        logger.opt(exception=cfg.advisor_debug).error(f'Agent run failed: {e}')
         error_msg = f'{type(e).__name__}: {e}'
 
     # 兜底
@@ -154,12 +152,12 @@ async def run_agent(
     conv.touch()
     elapsed = time.perf_counter() - started
     logger.info(
-        f'agent 完成: 会话={conv.key!r} rounds={rounds} '
-        f'耗时={elapsed:.1f}s 成功={not error_msg} 回复={len(final_text)} 字 '
-        f'待发图片={len(images)}'
+        f'Agent finished: session={conv.key!r} rounds={rounds} '
+        f'elapsed={elapsed:.1f}s ok={not error_msg} reply={len(final_text)} chars '
+        f'pending_images={len(images)}'
     )
     if error_msg:
-        logger.warning(f'agent 未完全成功: {error_msg}')
+        logger.warning(f'Agent did not fully succeed: {error_msg}')
     return AgentResult(text=final_text, images=images, ok=not error_msg, note=error_msg)
 
 

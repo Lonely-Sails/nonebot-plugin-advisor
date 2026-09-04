@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import time
+import shutil
 import asyncio
 from typing import Any, Literal
 from pathlib import Path
@@ -22,6 +23,7 @@ from nonebot import logger
 from .llm import LLMClient, image_data_url
 from .utils import safe_filename, guess_text_encoding
 from .config import TEXT_EXTS, IMAGE_EXTS, Config
+from .imageops import image_info, annotate_image
 
 FileKind = Literal['image', 'text', 'binary']
 
@@ -45,8 +47,8 @@ class VFile:
         if self.total_lines is None:
             try:
                 # 快速数行：不整份读入内存
-                with open(self.path, 'rb') as f:
-                    self.total_lines = sum(1 for _ in f)
+                with self.path.open('rb') as file:
+                    self.total_lines = sum(1 for _ in file)
             except OSError:
                 self.total_lines = 0
         return self.total_lines
@@ -66,22 +68,23 @@ class Turn:
         if not self.media:
             return ''
         lines: list[str] = []
-        for m in self.media:
-            if m.kind == 'image':
-                dims = f'（{m.width}×{m.height}）' if m.width else ''
-                if m.description:
-                    lines.append(f'[附图 {m.name}{dims}：{m.description}]')
+        for media in self.media:
+            if media.kind == 'image':
+                dims = f'（{media.width}×{media.height}）' if media.width else ''
+                if media.description:
+                    lines.append(f'[附图 {media.name}{dims}：{media.description}]')
                 else:
                     lines.append(
-                        f'[附图 {m.name}{dims}：可用 inspect_image 工具进一步查看]'
+                        f'[附图 {media.name}{dims}：可用 inspect_image 工具进一步查看]'
                     )
-            elif m.kind == 'text':
-                n = m.line_count()
+            elif media.kind == 'text':
+                line_count = media.line_count()
                 lines.append(
-                    f'[附带文本文件 {m.name}（约 {n} 行）：可用 read_file 按行查看]'
+                    f'[附带文本文件 {media.name}（约 {line_count} 行）：'
+                    f'可用 read_file 按行查看]'
                 )
             else:
-                lines.append(f'[附带文件 {m.name}（{fmt_size(m.size)}）]')
+                lines.append(f'[附带文件 {media.name}（{fmt_size(media.size)}）]')
         return '\n' + '\n'.join(lines)
 
     def to_openai(self, *, inline_images: bool, max_images: int) -> dict[str, Any]:
@@ -90,25 +93,29 @@ class Turn:
             return {'role': 'assistant', 'content': self.text or '...'}
         text = (self.text or '') + self._media_marker()
         if inline_images and self.media:
-            n_img = len([m for m in self.media[:max_images] if m.kind == 'image'])
-            if n_img:
-                logger.debug(f'用户轮次内联 {n_img} 张图片给主模型')
+            image_count = len(
+                [media for media in self.media[:max_images] if media.kind == 'image']
+            )
+            if image_count:
+                logger.debug(
+                    f'Inlining {image_count} image(s) from user turn to the main model'
+                )
         if not inline_images or not self.media:
             return {'role': 'user', 'content': text}
         content: list[dict[str, Any]] = [{'type': 'text', 'text': text}]
-        for m in self.media[:max_images]:
-            if m.kind != 'image':
+        for media in self.media[:max_images]:
+            if media.kind != 'image':
                 continue
             try:
-                ext = Path(m.name).suffix.lstrip('.') or 'png'
+                ext = Path(media.name).suffix.lstrip('.') or 'png'
                 content.append(
                     {
                         'type': 'image_url',
-                        'image_url': {'url': image_data_url(str(m.path), ext)},
+                        'image_url': {'url': image_data_url(str(media.path), ext)},
                     }
                 )
-            except OSError as e:
-                logger.warning(f'图片读取失败 {m.name}: {e}')
+            except OSError as error:
+                logger.warning(f'Failed to read image {media.name}: {error}')
         return {'role': 'user', 'content': content}
 
 
@@ -191,7 +198,7 @@ class Conversation:
         name = self._unique_name(raw_name or 'file')
         path = self.attach_dir / name
         logger.debug(
-            f'写入附件 {name}: {len(data)} 字节 media_type={media_type!r}'
+            f'Writing attachment {name}: {len(data)} bytes media_type={media_type!r}'
         )
         path.write_bytes(data)
         ext = Path(name).suffix.lower()
@@ -214,8 +221,6 @@ class Conversation:
         )
         if kind == 'image':
             try:
-                from .imageops import image_info
-
                 info = image_info(path)
                 vf.width = info['width']
                 vf.height = info['height']
@@ -226,23 +231,24 @@ class Conversation:
                 try:
                     ext_img = Path(name).suffix.lstrip('.') or 'png'
                     vf.description = await llm.describe_image_file(str(path), ext_img)
-                except Exception as e:
-                    logger.warning(f'图片描述失败 {name}: {e}')
+                except Exception as error:
+                    logger.warning(f'Failed to describe image {name}: {error}')
                     vf.description = None
         elif kind == 'text':
             # 只登记行数（供按行读取），内容留在磁盘
             vf.total_lines = data.count(b'\n') + (0 if data.endswith(b'\n') else 1)
             if vf.total_lines > self.cfg.advisor_upload_max_lines:
                 logger.info(
-                    f'{name} 共 {vf.total_lines} 行，超过 '
-                    f'{self.cfg.advisor_upload_max_lines} 行限制，仍可按行读取'
+                    f'{name} has {vf.total_lines} lines, exceeding the '
+                    f'{self.cfg.advisor_upload_max_lines}-line limit; '
+                    'still readable by line'
                 )
         self.files[name] = vf
         self.touch()
         logger.info(
-            f'会话 {self.key} 新增附件 {name}: kind={kind} '
+            f'Session {self.key} added attachment {name}: kind={kind} '
             f'size={fmt_size(len(data))}'
-            + (f' 描述={vf.description[:60]}' if vf.description else '')
+            + (f' description={vf.description[:60]}' if vf.description else '')
         )
         return vf
 
@@ -262,9 +268,9 @@ class Conversation:
         if s > total:
             return f'（{name} 共 {total} 行，起始行超过文件长度）'
         try:
-            with open(vf.path, encoding='utf-8', errors='replace') as f:
+            with vf.path.open(encoding='utf-8', errors='replace') as file:
                 lines = []
-                for i, line in enumerate(f, 1):
+                for i, line in enumerate(file, 1):
                     if i > e:
                         break
                     if i >= s:
@@ -285,8 +291,8 @@ class Conversation:
         kw = keyword.lower()
         hits: list[str] = []
         try:
-            with open(vf.path, encoding='utf-8', errors='replace') as f:
-                for i, line in enumerate(f, 1):
+            with vf.path.open(encoding='utf-8', errors='replace') as file:
+                for i, line in enumerate(file, 1):
                     if kw in line.lower():
                         hits.append(f'{i}: {line.rstrip()[:1500]}')
                         if len(hits) >= limit:
@@ -333,8 +339,6 @@ class Conversation:
 
     def annotate(self, name: str, ops: list[dict]) -> VFile:
         """对某张图片执行标注，结果作为新文件登记并标记待发送。"""
-        from .imageops import annotate_image
-
         vf = self.files.get(name)
         if vf is None or vf.kind != 'image':
             raise ValueError(f'找不到图片附件：{name}')
@@ -346,8 +350,6 @@ class Conversation:
             size=out.stat().st_size,
             description=f'由 {name} 标注生成',
         )
-        from .imageops import image_info
-
         info = image_info(out)
         vf2.width = info['width']
         vf2.height = info['height']
@@ -376,7 +378,7 @@ class SessionMemory:
                 cfg=self.cfg,
             )
             self._convs[key] = conv
-            logger.debug(f'新建会话 {key}（附件目录 {conv.attach_dir}）')
+            logger.debug(f'Created session {key} (attachment dir {conv.attach_dir})')
         else:
             if user_name:
                 conv.user_name = user_name
@@ -394,8 +396,6 @@ class SessionMemory:
         for k in expired:
             self._convs.pop(k, None)
             try:
-                import shutil
-
                 d = self.base_dir / k
                 if d.exists() and d.is_dir():
                     shutil.rmtree(d, ignore_errors=True)

@@ -65,7 +65,7 @@ async def _fetch_image_bytes(seg: Any, bot: Bot, event: Event) -> bytes | None:
         try:
             return await asyncio.wait_for(http_get_bytes(url), _MEDIA_TIMEOUT)
         except Exception as e:
-            logger.debug(f'图片 url 下载失败 {url}: {e}')
+            logger.debug(f'Failed to download image from URL {url}: {e}')
     # 交给 alconna 的 image_fetch（各适配器有各自实现）
     if image_fetch is not None:
         try:
@@ -75,7 +75,7 @@ async def _fetch_image_bytes(seg: Any, bot: Bot, event: Event) -> bytes | None:
             if data:
                 return data
         except Exception as e:
-            logger.debug(f'image_fetch 失败: {e}')
+            logger.debug(f'image_fetch failed: {e}')
     return None
 
 
@@ -89,7 +89,7 @@ async def _fetch_file_bytes(seg: Any) -> bytes | None:
         try:
             return await asyncio.wait_for(http_get_bytes(url), _MEDIA_TIMEOUT)
         except Exception as e:
-            logger.debug(f'文件下载失败 {url}: {e}')
+            logger.debug(f'Failed to download file from URL {url}: {e}')
     raw = getattr(seg, 'raw', None)
     if raw is not None:
         try:
@@ -172,7 +172,7 @@ async def _walk_segments(
                             notes=notes,
                         )
                 except Exception as e:
-                    logger.debug(f'解析引用消息失败: {e}')
+                    logger.debug(f'Failed to parse quoted message: {e}')
             else:
                 notes.append('（用户引用了一条消息，但内容无法获取）')
         elif At is not None and isinstance(seg, At):
@@ -249,11 +249,11 @@ async def parse_event_message(event: Event, bot: Bot) -> ParsedMessage:
         unimsg = UniMessage.of(raw_msg, bot=bot)
         unimsg = await unimsg.attach_reply(event=event, bot=bot)
     except Exception as e:
-        logger.warning(f'构建通用消息失败: {e}')
+        logger.warning(f'Failed to build UniMessage: {e}')
         return ParsedMessage(text=event.get_plaintext())
     parsed = await parse_unimsg(unimsg, bot, event)
     logger.debug(
-        f'解析消息: text={parsed.text[:200]!r} '
+        f'Parsed message: text={parsed.text[:200]!r} '
         f'quoted={parsed.quoted_text[:120]!r} media={len(parsed.media)} '
         f'note={parsed.note!r}'
     )

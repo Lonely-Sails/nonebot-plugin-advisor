@@ -3,20 +3,19 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any
+import base64
+from typing import Any
+from pathlib import Path
 
+from openai import (
+    AsyncOpenAI,
+    APIStatusError,
+    RateLimitError,
+    APIConnectionError,
+)
 from nonebot import logger
 
 from .config import Config
-
-if TYPE_CHECKING:
-    from openai import AsyncOpenAI, APIStatusError, RateLimitError, APIConnectionError
-
-try:
-    from openai import AsyncOpenAI, APIStatusError, RateLimitError, APIConnectionError
-except ImportError:  # pragma: no cover
-    AsyncOpenAI = None  # type: ignore[assignment,misc]
-
 
 _DESCRIBE_PROMPT = (
     '请用中文简洁地描述这张图片的内容，尽量说清图中元素、界面/步骤，最多 150 字。'
@@ -48,11 +47,8 @@ class LLMError(RuntimeError):
 
 def image_data_url(path_or_bytes: bytes | str, ext: str = 'png') -> str:
     """把图片字节/文件路径转成 data url，供多模态消息使用。"""
-    import base64
-
     if isinstance(path_or_bytes, str):
-        with open(path_or_bytes, 'rb') as f:
-            data = f.read()
+        data = Path(path_or_bytes).read_bytes()
     else:
         data = path_or_bytes
     mime = _MIME.get(ext.lower().lstrip('.'), 'image/png')
@@ -74,9 +70,9 @@ class LLMClient:
     @property
     def client(self) -> Any:
         if not self.available:
-            raise LLMNotConfigured('未配置 advisor_llm_api_key，LLM 客服未启用')
-        if AsyncOpenAI is None:  # pragma: no cover
-            raise LLMNotConfigured('未安装 openai 依赖')
+            raise LLMNotConfigured(
+                'advisor_llm_api_key is not configured; the LLM assistant is disabled'
+            )
         if self._client is None:
             self._client = AsyncOpenAI(
                 base_url=self.cfg.advisor_llm_base_url,
@@ -95,25 +91,28 @@ class LLMClient:
         """视觉模型：优先使用独立配置，否则退回主模型。"""
         return self.cfg.advisor_vision_model or self.cfg.advisor_llm_model
 
-    def _translate_error(self, e: Exception) -> str:
-        if isinstance(e, RateLimitError):
-            return '模型服务繁忙（限流），请稍后再试'
-        if isinstance(e, (APIConnectionError,)) or isinstance(e, TimeoutError):
-            return '连接模型服务失败，请检查网络或稍后再试'
-        if isinstance(e, APIStatusError):
-            code = getattr(e, 'status_code', '')
-            msg = ''
+    def _translate_error(self, error: Exception) -> str:
+        if isinstance(error, RateLimitError):
+            return 'The model service is busy (rate limited); please try again later'
+        if isinstance(error, (APIConnectionError, TimeoutError)):
+            return (
+                'Failed to connect to the model service; '
+                'check your network or try again later'
+            )
+        if isinstance(error, APIStatusError):
+            code = getattr(error, 'status_code', '')
+            message = ''
             try:
-                body = getattr(e, 'body', None) or {}
-                msg = (body.get('error') or {}).get('message', '')
+                body = getattr(error, 'body', None) or {}
+                message = (body.get('error') or {}).get('message', '')
             except Exception:
                 pass
-            if code == 400 and 'image' in str(msg).lower():
-                raise VisionUnsupported(str(msg)) from e
-            return f'模型服务返回错误（{code}）：{msg or e}'
-        if isinstance(e, VisionUnsupported):
-            return str(e)
-        return f'LLM 调用异常：{type(e).__name__}: {e}'
+            if code == 400 and 'image' in str(message).lower():
+                raise VisionUnsupported(str(message)) from error
+            return f'The model service returned an error ({code}): {message or error}'
+        if isinstance(error, VisionUnsupported):
+            return str(error)
+        return f'LLM call failed: {type(error).__name__}: {error}'
 
     # ── 对话 ────────────────────────────────────────────────────────────
     async def chat(
@@ -135,9 +134,9 @@ class LLMClient:
         kwargs: dict[str, Any] = {
             'model': model or self.text_model,
             'messages': messages,
-            'temperature': cfg.advisor_llm_temperature
-            if temperature is None
-            else temperature,
+            'temperature': (
+                cfg.advisor_llm_temperature if temperature is None else temperature
+            ),
         }
         if max_tokens is not None:
             kwargs['max_tokens'] = max_tokens
@@ -148,7 +147,7 @@ class LLMClient:
         if tool_choice is not None:
             kwargs['tool_choice'] = tool_choice
         logger.debug(
-            f'LLM chat 请求: model={kwargs["model"]} '
+            f'LLM chat request: model={kwargs["model"]} '
             f'messages={len(messages)} tools={len(tools) if tools else 0} '
             f'temperature={kwargs["temperature"]}'
         )
@@ -156,14 +155,14 @@ class LLMClient:
         try:
             resp = await self.client.chat.completions.create(**kwargs)
         except Exception as e:
-            logger.debug(f'LLM chat 请求失败: {type(e).__name__}: {e}')
+            logger.debug(f'LLM chat request failed: {type(e).__name__}: {e}')
             msg = self._translate_error(e)
             if isinstance(e, VisionUnsupported):
                 raise VisionUnsupported(msg) from e
             raise LLMError(msg) from e
         choice = resp.choices[0] if resp.choices else None
         if not choice:
-            raise LLMError('模型未返回任何内容')
+            raise LLMError('The model returned no content')
         message = choice.message
         data: dict[str, Any] = {'role': 'assistant', 'content': message.content}
         if getattr(message, 'tool_calls', None):
@@ -190,10 +189,10 @@ class LLMClient:
         except Exception:
             pass
         logger.info(
-            f'LLM 返回: {kwargs["model"]} 耗时 {elapsed:.1f}s'
-            f'{tok} 工具调用={n_tcalls}'
+            f'LLM response: {kwargs["model"]} elapsed {elapsed:.1f}s'
+            f'{tok} tool_calls={n_tcalls}'
         )
-        logger.debug(f'LLM 回复: {(str(data.get("content") or ""))[:500]!r}')
+        logger.debug(f'LLM reply: {(str(data.get("content") or ""))[:500]!r}')
         return data
 
     # ── 视觉描述 ────────────────────────────────────────────────────────
@@ -216,8 +215,8 @@ class LLMClient:
             }
         ]
         logger.debug(
-            f'视觉请求: model={model or self.vision_model} '
-            f'prompt={prompt[:100]!r} 图片data_url={len(image_data_url_)} 字符'
+            f'Vision request: model={model or self.vision_model} '
+            f'prompt={prompt[:100]!r} image_data_url_len={len(image_data_url_)}'
         )
         t0 = time.perf_counter()
         try:
@@ -228,18 +227,18 @@ class LLMClient:
                 temperature=0.2,
             )
         except Exception as e:
-            logger.debug(f'视觉请求失败: {type(e).__name__}: {e}')
+            logger.debug(f'Vision request failed: {type(e).__name__}: {e}')
             msg = self._translate_error(e)
             if isinstance(e, VisionUnsupported):
                 raise VisionUnsupported(msg) from e
             raise LLMError(msg) from e
         choice = resp.choices[0] if resp.choices else None
         if not choice or not choice.message.content:
-            raise LLMError('视觉模型未返回描述')
+            raise LLMError('The vision model returned no description')
         desc = str(choice.message.content).strip()
         elapsed = time.perf_counter() - t0
         logger.debug(
-            f'视觉返回: 耗时 {elapsed:.1f}s 描述 {len(desc)} 字: '
+            f'Vision response: elapsed {elapsed:.1f}s description_len={len(desc)}: '
             f'{desc[:120]!r}'
         )
         return desc
@@ -248,10 +247,8 @@ class LLMClient:
         self, path: str, ext: str | None = None, prompt: str | None = None
     ) -> str:
         """便捷方法：由文件路径调用视觉模型。"""
-        import os
-
-        ext = ext or os.path.splitext(path)[1].lstrip('.')
-        logger.debug(f'视觉描述图片文件: {path} (ext={ext})')
+        ext = ext or Path(path).suffix.lstrip('.')
+        logger.debug(f'Describing image file: {path} (ext={ext})')
         data_url = image_data_url(path, ext)
         if prompt:
             return await self.describe_image(data_url, prompt=prompt)

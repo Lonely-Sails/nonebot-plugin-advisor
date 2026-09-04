@@ -14,7 +14,7 @@ from curl_cffi.requests import AsyncSession
 
 from .utils import truncate, strip_html
 
-_UA = (
+_USER_AGENT = (
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
     '(KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 )
@@ -36,7 +36,7 @@ class SearchError(RuntimeError):
 
 async def _searxng_search(query: str, base_url: str, max_results: int) -> list[dict]:
     url = base_url.rstrip('/') + '/search?' + urlencode({'q': query, 'format': 'json'})
-    headers = {'User-Agent': _UA, 'Accept': 'application/json'}
+    headers = {'User-Agent': _USER_AGENT, 'Accept': 'application/json'}
     async with httpx.AsyncClient(
         timeout=15.0, follow_redirects=True, headers=headers
     ) as c:
@@ -120,7 +120,9 @@ async def _fetch_contents(
                 )
                 r['content'] = content
             except Exception as e:
-                logger.debug(f'抓取搜索结果正文失败 {r.get("url")}: {e}')
+                logger.debug(
+                    f'Failed to fetch search result content {r.get("url")}: {e}'
+                )
                 r['content'] = ''
         return r
 
@@ -146,7 +148,9 @@ async def web_search(
             results = await asyncio.wait_for(
                 _searxng_search(query, searxng_url, max_results), timeout=timeout_
             )
-            logger.debug(f'联网搜索 {query!r} 命中 {len(results)} 条 (searxng)')
+            logger.debug(
+                f'Web search {query!r} returned {len(results)} result(s) (searxng)'
+            )
             if fetch_content and results:
                 results = await _fetch_contents(
                     results, content_max_chars, min(timeout_, 15.0)
@@ -158,7 +162,7 @@ async def web_search(
         results = await asyncio.wait_for(
             _bing_search(query, max_results), timeout=timeout_
         )
-        logger.debug(f'联网搜索 {query!r} 命中 {len(results)} 条 (bing)')
+        logger.debug(f'Web search {query!r} returned {len(results)} result(s) (bing)')
         if fetch_content and results:
             results = await _fetch_contents(
                 results, content_max_chars, min(timeout_, 15.0)
@@ -166,7 +170,7 @@ async def web_search(
         return results
     except Exception as e:
         errors.append(f'bing: {e}')
-    logger.warning(f'联网搜索失败 {query!r}: {errors}')
+    logger.warning(f'Web search failed {query!r}: {errors}')
     raise SearchError('搜索失败：' + ('；'.join(errors) or '未知原因'))
 
 
@@ -193,7 +197,10 @@ async def fetch_webpage(url: str, max_chars: int = 6000, timeout_: float = 20.0)
             raw = resp.text
         text = strip_html(raw) if '<' in raw else raw
         result = truncate(text, max_chars) if text else '（页面没有可读文本）'
-        logger.debug(f'抓取网页 {url}: 正文 {len(text)} 字 → 返回 {len(result)} 字')
+        logger.debug(
+            f'Fetched webpage {url}: body {len(text)} chars -> '
+            f'returned {len(result)} chars'
+        )
         return result
     except SearchError:
         raise

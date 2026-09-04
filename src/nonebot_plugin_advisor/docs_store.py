@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 import time
 import asyncio
@@ -64,22 +63,18 @@ def _run_git(args: list[str], cwd: Path | None = None, timeout: int = 240) -> st
 
 def _iter_files(root: Path, exts: tuple[str, ...]) -> list[str]:
     """递归收集相对路径（跳过隐藏目录与 .git）。"""
-    out: list[str] = []
     if not root.exists():
-        return out
-    for dirpath, dirnames, filenames in os.walk(root):
-        # 原地过滤隐藏目录，避免进入
-        dirnames[:] = [
-            d
-            for d in dirnames
-            if not d.startswith('.') and d != '.git' and d != '__pycache__'
-        ]
-        for fn in filenames:
-            if fn.startswith('.'):
-                continue
-            if Path(fn).suffix.lower() in exts:
-                rel = os.path.relpath(os.path.join(dirpath, fn), root)
-                out.append(rel)
+        return []
+    out: list[str] = []
+    for fp in root.rglob('*'):
+        if not fp.is_file():
+            continue
+        # 跳过隐藏文件/目录（.git、.github 除外）
+        parts = fp.relative_to(root).parts
+        if any(part.startswith('.') and part != '.github' for part in parts):
+            continue
+        if fp.suffix.lower() in exts:
+            out.append(fp.relative_to(root).as_posix())
     return sorted(out)
 
 
@@ -113,6 +108,7 @@ class KnowledgeBase:
         self._index: dict | None = None
         self._text_cache: dict[str, str] = {}
         self._repo_dir: Path | None = None
+        logger.debug(f'Knowledge base path: {self.data_dir}')
 
     # ── 基本属性 ────────────────────────────────────────────────────────
     @property
@@ -147,7 +143,7 @@ class KnowledgeBase:
         started = time.perf_counter()
         try:
             source = self.cfg.advisor_kb_source.strip()
-            logger.debug(f'知识库同步开始: source={source!r} force={force}')
+            logger.debug(f'KB sync started: source={source!r} force={force}')
             head: str | None = None
             if _is_git_source(source):
                 await asyncio.to_thread(self._git_update, source)
@@ -162,16 +158,16 @@ class KnowledgeBase:
             report = await self._scan_and_index(force=force, head=head)
         except Exception as e:
             logger.opt(exception=self.cfg.advisor_debug).error(
-                f'知识库同步失败: {e}'
+                f'KB sync failed: {e}'
             )
             report.ok = False
             report.message = str(e)
         elapsed = time.perf_counter() - started
         if report.ok:
-            logger.info(f'知识库同步完成（{elapsed:.0f}s）: {report.message}')
+            logger.info(f'KB sync completed ({elapsed:.0f}s): {report.message}')
         else:
             logger.warning(
-                f'知识库同步未完成（{elapsed:.0f}s）: {report.message}'
+                f'KB sync did not complete ({elapsed:.0f}s): {report.message}'
             )
         return report
 
@@ -179,14 +175,14 @@ class KnowledgeBase:
         repo = self.repo_dir
         branch = self.cfg.advisor_kb_branch.strip()
         if not (repo / '.git').exists():
-            logger.info(f'首次克隆知识库: {source}')
+            logger.info(f'Cloning knowledge base for the first time: {source}')
             args = ['clone', '--depth', '1']
             if branch:
                 args += ['--branch', branch]
             args += [source, str(repo)]
             _run_git(args, timeout=600)
         else:
-            logger.debug(f'git fetch origin（分支 {branch or "默认"}）')
+            logger.debug(f'git fetch origin (branch {branch or "default"})')
             _run_git(['fetch', 'origin'], cwd=repo, timeout=600)
             if branch:
                 _run_git(['reset', '--hard', f'origin/{branch}'], cwd=repo, timeout=300)
@@ -244,8 +240,8 @@ class KnowledgeBase:
 
         pending = pending[: cfg.advisor_kb_max_images_per_sync]
         logger.debug(
-            f'知识库扫描: 文档 {len(docs)} 图片 {len(images)} '
-            f'本次待索引图片 {len(pending)}（force={force} head={head}）'
+            f'KB scan: docs={len(docs)} images={len(images)} '
+            f'pending_images={len(pending)} (force={force} head={head})'
         )
         if pending:
             describe_report = await self._describe_images(root, index, pending)
@@ -306,7 +302,7 @@ class KnowledgeBase:
                 entry['error'] = None
                 index['images'][rel] = entry
                 ok += 1
-                logger.debug(f'图片已索引 {rel}: 描述 {len(desc)} 字')
+                logger.debug(f'Image indexed {rel}: description {len(desc)} chars')
             except VisionUnsupported as e:
                 # 模型不支持看图 → 标记错误并跳过，避免每次都重试
                 entry = index['images'].get(rel, {})
@@ -314,7 +310,7 @@ class KnowledgeBase:
                 index['images'][rel] = entry
                 failed += 1
                 errors.append(f'{rel}: 视觉模型不支持图片')
-                logger.warning(f'{rel}: 视觉模型不支持图片，已跳过')
+                logger.warning(f'{rel}: vision model does not support images; skipped')
                 break  # 同一模型，其余图片也不用试了
             except Exception as e:
                 entry = index['images'].get(rel, {})
@@ -322,7 +318,7 @@ class KnowledgeBase:
                 index['images'][rel] = entry
                 failed += 1
                 errors.append(f'{rel}: {e}')
-                logger.warning(f'图片索引失败 {rel}: {e}')
+                logger.warning(f'Image indexing failed {rel}: {e}')
             # 及时落盘，避免中断丢失
             self._index = index
             json_dump(self.index_path, index)

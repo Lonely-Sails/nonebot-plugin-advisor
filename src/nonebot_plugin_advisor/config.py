@@ -37,8 +37,6 @@ TEXT_EXTS: tuple[str, ...] = (
     '.css',
     '.sql',
     '.env',
-    '.ini',
-    '.log',
     '.out',
     '.err',
     '.diff',
@@ -161,8 +159,3 @@ SUPERUSERS: set[str] = {str(x) for x in global_config.superusers}
 def is_superuser(user_id: str) -> bool:
     """判断是否为超级用户"""
     return user_id in SUPERUSERS
-
-
-def option_enabled(value: bool, key: str) -> bool:
-    """通用开关判断（预留扩展）"""
-    return value

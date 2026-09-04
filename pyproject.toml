@@ -1,6 +1,6 @@
 [project]
 name = "nonebot-plugin-advisor"
-version = "v0.0.1"
+version = "v0.0.2"
 description = "一个多功能的、跨平台的 LLM 项目客服。"
 readme = "README.md"
 requires-python = ">= 3.10, < 4.0"

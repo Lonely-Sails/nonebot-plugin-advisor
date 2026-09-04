@@ -89,13 +89,14 @@ async def run_agent(
 
             tool_calls = msg.get('tool_calls')
             if not tool_calls:
-                final_text = (msg.get('content') or '').strip()
+                answer = (msg.get('content') or '').strip()
+                final_text = answer
                 logger.info(
                     f'Round {rounds}/{max_rounds}: model answered directly'
-                    f' ({len(final_text)} chars)'
+                    f' ({len(answer)} chars)'
                 )
                 if cfg.advisor_debug:
-                    logger.debug(f'Answer content: {final_text[:500]!r}')
+                    logger.debug(f'Answer content: {answer[:500]!r}')
                 break
             names = [((tc.get('function') or {}).get('name', '?')) for tc in tool_calls]
             logger.info(f'Round {rounds}/{max_rounds}: model requested tools {names}')

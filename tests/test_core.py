@@ -30,16 +30,20 @@ async def test_session_text_file_line_reading(tmp_path):
     assert vf.total_lines == 100
 
     out = conv.describe_text_file('error.log', 1, 3)
+    assert out is not None
     assert 'error.log' in out
     assert '共 100 行' in out
     assert 'line001' in out
 
     tail = conv.describe_text_file('error.log', 99, 100)
+    assert tail is not None
     assert 'line100' in tail
 
     hits = conv.search_in_file('error.log', 'line050')
+    assert hits is not None
     assert 'line050 hello' in hits
     miss = conv.search_in_file('error.log', 'not-exist-word')
+    assert miss is not None
     assert '没有找到' in miss
 
 

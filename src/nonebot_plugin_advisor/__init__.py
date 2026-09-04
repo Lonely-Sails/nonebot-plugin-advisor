@@ -225,9 +225,7 @@ async def _send_reply(key: str, result) -> None:
             seg_parts.extend(Image(path=str(v.path)) for v in images)
         try:
             await UniMessage(seg_parts).send(reply_to=True)
-            logger.debug(
-                f'Sent segment {i + 1}/{total} to session {key}: {seg[:60]!r}'
-            )
+            logger.debug(f'Sent segment {i + 1}/{total} to session {key}: {seg[:60]!r}')
         except Exception as e:
             logger.error(
                 f'Failed to send segment {i + 1}/{total} to session {key}: {e}'
